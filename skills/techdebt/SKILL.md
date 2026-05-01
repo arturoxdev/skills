@@ -1,8 +1,6 @@
-
 ---
 name: techdebt
 description: Find and fix technical debt including duplicated code, dead code, outdated patterns, and code smells. Run at the end of sessions to clean up.
-disable-model-invocation: true
 ---
 
 # Technical Debt Finder
