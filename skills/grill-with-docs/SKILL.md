@@ -1,6 +1,6 @@
 ---
 name: grill-with-docs
-description: Grilling session that challenges your plan against the existing domain model, sharpens terminology, and updates documentation (CONTEXT.md, ADRs) inline as decisions crystallise. Delegates to the `altman` subagent for a second-opinion review at the start and end of the session. Use when user wants to stress-test a plan against their project's language and documented decisions.
+description: Grilling session that challenges your plan against the existing domain model, sharpens terminology, and updates documentation (CONTEXT.md, ADRs) inline as decisions crystallise. Use when user wants to stress-test a plan against their project's language and documented decisions.
 ---
 
 <what-to-do>
@@ -10,11 +10,7 @@ Ask the questions one at a time, waiting for feedback on each question before co
 
 If a question can be answered by exploring the codebase, explore the codebase instead.
 
-This skill delegates to the **`altman` subagent** for an external second opinion at two key moments:
-1. **At the start** — before asking the first question, to surface concerns Claude might miss.
-2. **At the end** — after all answers are in, to validate the consolidated plan and detect gaps.
-
-If the final Codex review reveals gaps that Claude considers relevant, open a second round of questions. Loop until Claude has no more meaningful questions to ask.
+This skill never invokes external models. If the user wants a second opinion at the end of the session, they can invoke `/ask-altman` (or say "segunda opinión", "consulta a altman", etc.) and the `ask-altman` skill will pick up the session context and consult Codex.
 </what-to-do>
 
 <supporting-info>
@@ -54,53 +50,6 @@ If a `CONTEXT-MAP.md` exists at the root, the repo has multiple contexts. The ma
 ```
 
 Create files lazily — only when you have something to write. If no `CONTEXT.md` exists, create one when the first term is resolved. If no `docs/adr/` exists, create it when the first ADR is needed.
-
-## Codex second-opinion (via the `altman` subagent)
-
-The mechanics of invoking Codex CLI live in the `altman` subagent (see `agents/altman.md`). This skill never calls `codex exec` directly — it delegates via the Agent tool with `subagent_type: "altman"` and reads back the subagent's reply.
-
-### Step 1 — Initial review (before the first question)
-
-Right after exploring the codebase but **before asking the first question**, launch the `altman` subagent and pass it:
-
-- The user's plan, verbatim.
-- A note that this is the **initial review** (the subagent will use the right prompt template).
-- A pointer telling it to read `CONTEXT.md` / `CONTEXT-MAP.md` and `docs/adr/` for itself.
-
-Wait for the subagent to return. Its reply will be `CODEX REVIEW (initial)` followed by Codex's raw bullet points, or `CODEX_UNAVAILABLE: <reason>` if the CLI failed.
-
-**Do not show Codex's output to the user verbatim** — use it to inform which questions you ask. If Codex raised something Claude didn't think of, fold it into the question queue.
-
-### Step 2 — Grilling loop
-
-Run the interview as described in the rest of this skill (one question at a time, recommended answers, update `CONTEXT.md` inline, etc.). Codex's initial concerns become part of the question pool — Claude decides ordering and phrasing.
-
-### Step 3 — Final review (after all answers)
-
-Once Claude has no more questions of its own, launch the `altman` subagent again and pass it:
-
-- The user's original plan.
-- The full Q&A transcript from the grilling session (`Q1/A1`, `Q2/A2`, …).
-- A summary of decisions captured so far (CONTEXT.md updates, proposed ADRs).
-
-The subagent will detect that this is the **final review** (it sees the Q&A and decisions block) and run the matching Codex prompt. Its reply will be `CODEX REVIEW (final)` followed by Codex's raw bullets, or `CODEX_UNAVAILABLE: <reason>`.
-
-### Step 4 — Filter and loop
-
-Read the subagent's reply and **filter**:
-- If Codex returns `NO_FURTHER_QUESTIONS` → end the session, summarise decisions, finalise pending `CONTEXT.md` / ADR writes.
-- If Codex raised follow-ups → evaluate each one. Only ask the user the ones Claude considers genuinely relevant. Skip questions that:
-  - Are already covered implicitly by an existing answer.
-  - Are implementation details that don't change the design.
-  - Restate something the user already settled.
-- If at least one follow-up survives the filter → ask them (one at a time, same as before), then re-launch the `altman` subagent for another final review (Step 3) with the new Q&A appended.
-
-Stop the loop when either Codex returns `NO_FURTHER_QUESTIONS` or all of Codex's follow-ups get filtered out by Claude. State briefly to the user that a second-opinion review was run and the plan is coherent.
-
-### Failure modes
-
-- If the subagent returns `CODEX_UNAVAILABLE`, tell the user once and continue the grilling without the second opinion. Do not block the session.
-- Never let Codex's opinion override the user's stated intent — Codex is an advisor, not an authority.
 
 ## During the session
 
