@@ -31,21 +31,21 @@ Antes de cualquier comando, lee la config real para que los comandos coincidan c
    busca scripts de migración en `package.json` (p.ej. `db:generate`, `db:migrate`). Si no existen,
    usa el binario directo: `bunx drizzle-kit …`, `pnpm dlx drizzle-kit …`, `npx drizzle-kit …`.
 3. **Conexión y ambientes.** Identifica cómo se entrega la cadena de conexión (variable de entorno,
-   archivo `.env`, secretos de CI) y qué ambientes existen (local, dev, s
+   archivo `.env`, secretos de CI) y qué ambientes existen (local, dev, staging, prod).
 
-A lo largo de la skill, `<gen>` = comando de generate del proyecto, `<mig
+A lo largo de la skill, `<gen>` = comando de generate del proyecto, `<mig>` = comando de migrate.
 
 ## Reglas críticas (no negociables)
 
-1. **Nunca `drizzle-kit push` contra una base compartida o de larga vida*
+1. **Nunca `drizzle-kit push` contra una base compartida o de larga vida** (prod, staging, dev
    compartida). `push` difea y muta la BD directamente, sin pasar por archivos de migración →
-   desincroniza el snapshot/journal de la realidad y puede borrar datos.
+   desincroniza el snapshot/journal de la realidad y puede borrar datos. `push` solo es aceptable
    en una BD local 100% desechable.
-2. **Siempre: editar esquema → `generate` → revisar el SQL → entregar par
+2. **Siempre: editar esquema → `generate` → revisar el SQL → entregar para `migrate`.** Nunca
    aplicar a mano ni saltarse el review.
-3. **Nunca editar una migración ya aplicada** en ningún ambiente. El migr
+3. **Nunca editar una migración ya aplicada** en ningún ambiente. El migrador valida por hash del
    archivo; editar un `.sql` aplicado rompe el tracking. Se corrige hacia adelante con una migración nueva.
-4. **Nunca editar a mano los archivos de snapshot/journal** de la carpeta
+4. **Nunca editar a mano los archivos de snapshot/journal** de la carpeta `meta/`.
 5. **El usuario aplica al ambiente más bajo primero** (local/dev), verifica, y luego promueve hacia
    arriba (staging → prod). Nunca prod primero.
 
@@ -59,17 +59,17 @@ Modifica el/los archivo(s) indicados en `schema` de la config.
 <gen>      # p.ej. bun run db:generate  /  npx drizzle-kit generate
 ```
 Crea `out/NNNN_*.sql` y actualiza `meta/`. **Corre `<gen>` una segunda vez:** debe reportar
-**"No schema changes"** → confirma que el snapshot quedó en sync (futuros
+**"No schema changes"** → confirma que el snapshot quedó en sync (futuros generate saldrán limpios).
 
 ### 3. Revisar el SQL generado (paso de seguridad)
 Abre el `.sql` nuevo y marca operaciones peligrosas:
-- `DROP TABLE` / `DROP COLUMN` → **pérdida de datos**; confirma intención
+- `DROP TABLE` / `DROP COLUMN` → **pérdida de datos**; confirma intención.
 - `ADD COLUMN … NOT NULL` **sin DEFAULT** en tabla poblada → `migrate` **fallará** (ver Casos especiales).
 - Cambios de tipo que requieran cláusula `USING` / casteo.
 - **Renombrados:** Drizzle puede interpretar un rename como `DROP + ADD` (pierde datos). En modo
-  interactivo te pregunta — responde rename; en modo no-interactivo, edit
+  interactivo te pregunta — responde rename; en modo no-interactivo, edita el SQL a `RENAME`.
 
-### 4. Casos especiales (editar el `.sql` ANTES de aplicar; nunca después
+### 4. Casos especiales (editar el `.sql` ANTES de aplicar; nunca después)
 - **Columna NOT NULL en tabla con datos** → 3 pasos en la misma migración:
   ```sql
   ALTER TABLE "t" ADD COLUMN "col" <tipo>;             -- 1) nullable
@@ -77,11 +77,16 @@ Abre el `.sql` nuevo y marca operaciones peligrosas:
   ALTER TABLE "t" ALTER COLUMN "col" SET NOT NULL;     -- 3) recién entonces NOT NULL
   ```
 - **Migración de datos** (mover/transformar): agrega los `UPDATE`/`INSERT` al `.sql`.
-- **Cambios grandes/zero-downtime:** usa expand→migrate→contract en migra
+- **Cambios grandes/zero-downtime:** usa expand→migrate→contract en migraciones separadas.
 - Borrar datos solo es opción si son **desechables**, y siempre **con confirmación** explícita del usuario.
 
-### 5. Entregar para que el usuario aplique (el agente NO corre migrate)
-La migración ya está lista (esquema editado + `.sql` revisado). Entrega a
+### 5. Sugerencia: commitear esquema + migración juntos
+Sugiere al usuario commitear el cambio de `schema` **y** los archivos de `out/`/`meta/` en el mismo
+commit, para que nunca se separen, siguiendo el flujo de ramas/PR del proyecto. *(Es solo una
+recomendación; el agente no ejecuta git.)*
+
+### 6. Entregar para que el usuario aplique (el agente NO corre migrate)
+La migración ya está lista (esquema editado + `.sql` revisado). Entrega al usuario los comandos
 exactos para aplicar, **en orden del ambiente más bajo al más alto**, indicando cómo apuntar la
 conexión a cada ambiente según el setup del Paso 0. Por ejemplo:
 
@@ -91,9 +96,9 @@ conexión a cada ambiente según el setup del Paso 0. Por ejemplo:
 ```
 
 Notas a comunicar al usuario:
-- `migrate` solo corre lo **pendiente** → es seguro re-ejecutarlo (no-op
+- `migrate` solo corre lo **pendiente** → es seguro re-ejecutarlo (no-op si ya aplicó).
 - **Verificar el ambiente destino antes de aplicar** (es fácil pegarle a prod por accidente; pasar la
-  conexión explícita en el comando es más seguro que depender de cuál amb
+  conexión explícita en el comando es más seguro que depender de cuál ambiente esté "activo").
 - Si el **CI** corre `migrate` automáticamente en algún ambiente, avisarlo para no duplicar.
 
 ## Anti-patrones (NO hacer)
@@ -103,27 +108,27 @@ Notas a comunicar al usuario:
 - ❌ Aplicar a prod antes que a dev.
 
 ## Troubleshooting
-- **`migrate` falla con `relation/table already exists`** → la BD ya tien
+- **`migrate` falla con `relation/table already exists`** → la BD ya tiene el esquema pero la tabla
   de tracking está vacía/atrasada (típico tras un `push` previo, o al adoptar una BD existente). **No
-  borrar nada.** Adoptar/stampear (ver Recuperación). Comparar la tabla d
+  borrar nada.** Adoptar/stampear (ver Recuperación). Comparar la tabla de tracking entre ambientes
   para ubicar la divergencia.
-- **`generate` repite el mismo churn** (dropear/recrear FKs, `SET DEFAULT
+- **`generate` repite el mismo churn** (dropear/recrear FKs, `SET DEFAULT` una y otra vez) → snapshot
   desincronizado por un `push` previo, o identificadores que exceden el límite de longitud del motor
-  (p.ej. Postgres trunca a 63 chars). Con migraciones puras no debería re
+  (p.ej. Postgres trunca a 63 chars). Con migraciones puras no debería repetirse.
 
 ## Recuperación: adoptar una BD existente en migraciones (baseline/stamp)
 Cuando una BD se construyó con `push` (o es previa a las migraciones) y se quiere que `migrate`
-funcione. **El agente prepara el script; lo ejecuta el usuario** (escribe
+funcione. **El agente prepara el script; lo ejecuta el usuario** (escribe en la BD).
 1. Asegurar que los archivos de migración representan el esquema completo actual (regenerar un
-   baseline limpio si hace falta; un 2º `generate` debe decir "No schema
+   baseline limpio si hace falta; un 2º `generate` debe decir "No schema changes").
 2. En cada ambiente existente, **marcar la migración como aplicada sin ejecutar el DDL**, insertando
-   su `hash` + `folderMillis` en la tabla de tracking. Usar `readMigratio
+   su `hash` + `folderMillis` en la tabla de tracking. Usar `readMigrationFiles` de
    `drizzle-orm/migrator` para obtener los valores exactos que el migrador espera:
    ```ts
    import { readMigrationFiles } from "drizzle-orm/migrator";
    const migs = readMigrationFiles({ migrationsFolder: "<out>" });
    // por cada mig: insertar (hash, created_at = folderMillis) en la tabla de tracking.
-   // OJO: la ubicación de la tabla depende del dialecto y de `migrations
+   // OJO: la ubicación de la tabla depende del dialecto y de `migrations` en la config
    //   - postgres: schema "drizzle", tabla "__drizzle_migrations" (id, hash, created_at)
    //   - mysql/sqlite: tabla "__drizzle_migrations" (created_at bigint)
    // El migrador aplica una mig si  max(created_at en BD) < folderMillis.
@@ -133,4 +138,4 @@ funcione. **El agente prepara el script; lo ejecuta el usuario** (escribe
 
 ## Referencias
 - `drizzle.config.*` del proyecto, scripts `db:*` en `package.json`.
-- Docs: drizzle-kit `generate` / `migrate` / `push`, y `drizzle-orm/migra
+- Docs: drizzle-kit `generate` / `migrate` / `push`, y `drizzle-orm/migrator`.
