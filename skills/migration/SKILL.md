@@ -1,186 +1,136 @@
-name: migrations
-description: >-
-  Use whenever you modify a Drizzle ORM schema (pgTable/mysqlTable/sqliteTable,
-  columns, indexes, relations, enums) and a database migration is needed —
-  adding/dropping/renaming columns or tables, changing types, constraints, or
-  seeding/backfilling data. Enforces the generate→review→apply workflow, the
-  safe handling of destructive changes, and protects migration history. Repo-agnostic.
+---
+name: drizzle-migration
+description: Usar al cambiar un esquema gestionado con Drizzle ORM (tablas, columnas, índices, constraints, enums, relaciones) que deba llegar a una base de datos. Prepara y revisa migraciones de forma segura en cualquier proyecto Drizzle (cualquier dialecto, layout o package manager). El agente genera y deja la migración lista; APLICARLA es responsabilidad del usuario. NUNCA usa drizzle-kit push contra bases compartidas: desincroniza el tracking y puede destruir datos.
 ---
 
-# Drizzle migrations — playbook
+# Migraciones con Drizzle (flujo seguro)
 
-You changed (or are about to change) a Drizzle schema. A migration is the
-versioned, reviewable record of that change. Do it the safe way: **never let a
-schema edit reach a shared database without a reviewed migration.**
+Flujo correcto para cualquier proyecto que use Drizzle ORM, independiente del dialecto
+(postgres, mysql, sqlite, turso…), del layout de carpetas y del package manager.
 
-## Regla de oro
+## Regla de propiedad (quién hace qué)
 
-> El schema `.ts` es la fuente de verdad. Toda diferencia entre el schema y la
-> base de datos se materializa en un archivo de migración **versionado,
-> revisado y commiteado** — nunca aplicado a ciegas.
+- **El agente PREPARA:** editar el esquema, correr `generate` (offline, no toca ninguna BD),
+  revisar y ajustar el `.sql`, y **entregar los comandos listos**.
+- **El usuario APLICA:** el agente **nunca** corre `migrate`, `push`, ni ningún comando que
+  escriba en una base de datos. Deja la migración lista y entrega las instrucciones para que el
+  usuario la aplique en cada ambiente.
 
----
+## Contexto pre-computado
 
-## Paso 0 — Orientarse (NO asumas la estructura del repo)
+- Config de Drizzle: `!find . -maxdepth 4 -name 'drizzle.config.*' -not -path '*/node_modules/*' 2>/dev/null`
+- Package manager (lockfile): `!ls bun.lockb pnpm-lock.yaml yarn.lock package-lock.json 2>/dev/null`
 
-Antes de tocar nada, descubre las convenciones del proyecto:
+## Paso 0 — Descubrir el setup del proyecto (no asumir)
 
-1. **Localiza la config**: busca `drizzle.config.{ts,js,json}`. Lee de ah
-   - `dialect` (postgresql / mysql / sqlite / turso / …)
-   - `schema` (dónde viven los archivos de schema)
-   - `out` (carpeta de migraciones — p. ej. `drizzle/`, `migrations/`)
-   - `migrations.table` / `migrations.schema` si están personalizados
-2. **Usa los scripts existentes**: revisa `package.json`. Si hay
-   `db:generate`, `db:migrate`, `db:push`, `db:check`, **usa esos** en ve
-   inventar comandos.
-3. **Detecta el package manager** por el lockfile y usa su runner:
-   - `bun.lockb`/`bun.lock` → `bunx drizzle-kit …`
-   - `pnpm-lock.yaml` → `pnpm dlx drizzle-kit …`
-   - `yarn.lock` → `yarn drizzle-kit …`
-   - `package-lock.json` → `npx drizzle-kit …`
-4. **Mira una migración existente** en la carpeta `out` para imitar el estilo,
-   el naming y el dialecto.
+Antes de cualquier comando, lee la config real para que los comandos coincidan con el proyecto:
 
-> A partir de aquí `<pm>` = el runner que detectaste. Sustitúyelo.
+1. **`drizzle.config.{ts,js,json}`** → anota `schema` (ruta del/los archivo(s) de esquema), `out`
+   (carpeta de migraciones), `dialect`, y `dbCredentials`/`migrations` (tabla y schema de tracking).
+2. **Package manager y scripts.** Detecta el runner por el lockfile (`bun`/`pnpm`/`yarn`/`npm`) y
+   busca scripts de migración en `package.json` (p.ej. `db:generate`, `db:migrate`). Si no existen,
+   usa el binario directo: `bunx drizzle-kit …`, `pnpm dlx drizzle-kit …`, `npx drizzle-kit …`.
+3. **Conexión y ambientes.** Identifica cómo se entrega la cadena de conexión (variable de entorno,
+   archivo `.env`, secretos de CI) y qué ambientes existen (local, dev, s
 
----
+A lo largo de la skill, `<gen>` = comando de generate del proyecto, `<mig
 
-## Paso 1 — Decidir: `generate + migrate` vs `push`
+## Reglas críticas (no negociables)
 
-| Situación | Comando | Por qué |
-|---|---|---|
-| Dev, staging, prod, **cualquier DB compartida**, equipo, CI | `generateorial versionado, revisable y reproducible |
-| Prototipo local desechable, iteración rápida en tu propia DB | `push` | Sincroniza schema↔DB sin archivos, pero **sin historial** |
+1. **Nunca `drizzle-kit push` contra una base compartida o de larga vida*
+   compartida). `push` difea y muta la BD directamente, sin pasar por archivos de migración →
+   desincroniza el snapshot/journal de la realidad y puede borrar datos.
+   en una BD local 100% desechable.
+2. **Siempre: editar esquema → `generate` → revisar el SQL → entregar par
+   aplicar a mano ni saltarse el review.
+3. **Nunca editar una migración ya aplicada** en ningún ambiente. El migr
+   archivo; editar un `.sql` aplicado rompe el tracking. Se corrige hacia adelante con una migración nueva.
+4. **Nunca editar a mano los archivos de snapshot/journal** de la carpeta
+5. **El usuario aplica al ambiente más bajo primero** (local/dev), verifica, y luego promueve hacia
+   arriba (staging → prod). Nunca prod primero.
 
-**Default = `generate + migrate`.** Usa `push` solo en tu DB local y nunca
-contra un entorno que otra persona o un deploy comparta. `push` aplica di
-destructivos directamente y sin dejar rastro.
+## Flujo paso a paso
 
----
+### 1. Editar el esquema
+Modifica el/los archivo(s) indicados en `schema` de la config.
 
-## Paso 2 — Editar el schema
+### 2. Generar (offline — no toca ninguna BD)
+```
+<gen>      # p.ej. bun run db:generate  /  npx drizzle-kit generate
+```
+Crea `out/NNNN_*.sql` y actualiza `meta/`. **Corre `<gen>` una segunda vez:** debe reportar
+**"No schema changes"** → confirma que el snapshot quedó en sync (futuros
 
-Modifica los archivos de schema TypeScript (la ruta que viste en `schema`).
-Mantén **un cambio lógico por migración** cuando sea posible — no mezcles
-rename con un drop con un add no relacionado.
+### 3. Revisar el SQL generado (paso de seguridad)
+Abre el `.sql` nuevo y marca operaciones peligrosas:
+- `DROP TABLE` / `DROP COLUMN` → **pérdida de datos**; confirma intención
+- `ADD COLUMN … NOT NULL` **sin DEFAULT** en tabla poblada → `migrate` **fallará** (ver Casos especiales).
+- Cambios de tipo que requieran cláusula `USING` / casteo.
+- **Renombrados:** Drizzle puede interpretar un rename como `DROP + ADD` (pierde datos). En modo
+  interactivo te pregunta — responde rename; en modo no-interactivo, edit
 
----
+### 4. Casos especiales (editar el `.sql` ANTES de aplicar; nunca después
+- **Columna NOT NULL en tabla con datos** → 3 pasos en la misma migración:
+  ```sql
+  ALTER TABLE "t" ADD COLUMN "col" <tipo>;             -- 1) nullable
+  UPDATE "t" SET "col" = <valor_backfill> WHERE …;     -- 2) backfill
+  ALTER TABLE "t" ALTER COLUMN "col" SET NOT NULL;     -- 3) recién entonces NOT NULL
+  ```
+- **Migración de datos** (mover/transformar): agrega los `UPDATE`/`INSERT` al `.sql`.
+- **Cambios grandes/zero-downtime:** usa expand→migrate→contract en migra
+- Borrar datos solo es opción si son **desechables**, y siempre **con confirmación** explícita del usuario.
 
-## Paso 3 — Generar la migración
+### 5. Entregar para que el usuario aplique (el agente NO corre migrate)
+La migración ya está lista (esquema editado + `.sql` revisado). Entrega a
+exactos para aplicar, **en orden del ambiente más bajo al más alto**, indicando cómo apuntar la
+conexión a cada ambiente según el setup del Paso 0. Por ejemplo:
 
-```bash
-<pm> drizzle-kit generate --name=<descripcion_corta_en_snake_case>
+```
+# El USUARIO ejecuta, fijando la conexión del ambiente destino:
+<mig>      # p.ej. DATABASE_URL="<conexión-dev>" bun run db:migrate
+```
 
-- El --name produce archivos legibles (0007_add_user_phone.sql) en vez de
-nombres aleatorios.
-- Esto crea el .sql y actualiza meta/_journal.json + el snapshot. Los
-tres son un conjunto atómico: van juntos al commit, nunca por separado.
+Notas a comunicar al usuario:
+- `migrate` solo corre lo **pendiente** → es seguro re-ejecutarlo (no-op
+- **Verificar el ambiente destino antes de aplicar** (es fácil pegarle a prod por accidente; pasar la
+  conexión explícita en el comando es más seguro que depender de cuál amb
+- Si el **CI** corre `migrate` automáticamente en algún ambiente, avisarlo para no duplicar.
 
-⚠️ Renames: el prompt interactivo
+## Anti-patrones (NO hacer)
+- ❌ `push` / `reset` / drop-and-recreate contra bases compartidas.
+- ❌ Que el agente corra `migrate`/`push` o cualquier comando que escriba en una BD.
+- ❌ Editar migraciones o snapshots ya aplicados.
+- ❌ Aplicar a prod antes que a dev.
 
-Si renombraste una columna o tabla, drizzle-kit generate preguntará si es
-un rename o un drop + create. Esto importa muchísimo:
+## Troubleshooting
+- **`migrate` falla con `relation/table already exists`** → la BD ya tien
+  de tracking está vacía/atrasada (típico tras un `push` previo, o al adoptar una BD existente). **No
+  borrar nada.** Adoptar/stampear (ver Recuperación). Comparar la tabla d
+  para ubicar la divergencia.
+- **`generate` repite el mismo churn** (dropear/recrear FKs, `SET DEFAULT
+  desincronizado por un `push` previo, o identificadores que exceden el límite de longitud del motor
+  (p.ej. Postgres trunca a 63 chars). Con migraciones puras no debería re
 
-- Rename → ALTER … RENAME → conserva los datos. ✅
-- drop + create → borra la columna/tabla vieja y crea una nueva vacía →
-pérdida de datos. ❌
+## Recuperación: adoptar una BD existente en migraciones (baseline/stamp)
+Cuando una BD se construyó con `push` (o es previa a las migraciones) y se quiere que `migrate`
+funcione. **El agente prepara el script; lo ejecuta el usuario** (escribe
+1. Asegurar que los archivos de migración representan el esquema completo actual (regenerar un
+   baseline limpio si hace falta; un 2º `generate` debe decir "No schema
+2. En cada ambiente existente, **marcar la migración como aplicada sin ejecutar el DDL**, insertando
+   su `hash` + `folderMillis` en la tabla de tracking. Usar `readMigratio
+   `drizzle-orm/migrator` para obtener los valores exactos que el migrador espera:
+   ```ts
+   import { readMigrationFiles } from "drizzle-orm/migrator";
+   const migs = readMigrationFiles({ migrationsFolder: "<out>" });
+   // por cada mig: insertar (hash, created_at = folderMillis) en la tabla de tracking.
+   // OJO: la ubicación de la tabla depende del dialecto y de `migrations
+   //   - postgres: schema "drizzle", tabla "__drizzle_migrations" (id, hash, created_at)
+   //   - mysql/sqlite: tabla "__drizzle_migrations" (created_at bigint)
+   // El migrador aplica una mig si  max(created_at en BD) < folderMillis.
+   ```
+3. Verificar (lo corre el usuario) que `migrate` sea **no-op** en las BD existentes y que cree el
+   esquema completo en una BD nueva.
 
-Corre generate en una terminal que pueda responder el prompt y elige el
-rename a conciencia. Si corres en un entorno no interactivo, verifica el SQL
-generado con extra cuidado (siguiente paso).
-
----
-Paso 4 — Revisar el SQL generado (OBLIGATORIO)
-
-Abre el .sql recién creado y léelo línea por línea. Drizzle hace un diff, no
-adivina tu intención. Busca:
-
-- [ ] DROP TABLE / DROP COLUMN inesperados → pérdida de datos.
-- [ ] Un rename que salió como DROP + ADD en vez de RENAME → pérdida de datos.
-- [ ] SET NOT NULL / NOT NULL en columna existente sin DEFAULT →
-falla si la tabla tiene filas (ver Paso 5).
-- [ ] Cambio de tipo sin cláusula de casteo (USING … en Postgres) → puede
-fallar o truncar.
-- [ ] UNIQUE / PRIMARY KEY nuevo sobre datos con duplicados → falla al ap
-- [ ] Que cada sentencia esté separada por el marcador --> statement-breakpoint.
-
-Si el SQL no coincide con tu intención, no lo edites a mano para “arreglarlo”
-y luego apliques: corrige el schema .ts, borra la migración recién
-generada (aún no aplicada) y regenera. Editar SQL a mano solo es válido para
-migraciones custom (Paso 6).
-
----
-Paso 5 — Operaciones destructivas / que preservan datos: patrón expand→contract
-
-Cuando un cambio borraría o perdería datos, divídelo en migraciones
-secuenciales (parallel change) en vez de un solo paso destructivo:
-
-Caso: agregar columna NOT NULL a tabla con datos
-1. Agrega la columna nullable (o con DEFAULT).
-2. Migración custom de backfill que rellena los valores (Paso 6).
-3. Migración que pone la columna NOT NULL.
-
-Caso: renombrar/reestructurar conservando datos sin downtime
-1. Expand: agrega lo nuevo (columna/tabla) sin quitar lo viejo.
-2. Backfill: copia datos viejo → nuevo (migración custom).
-3. Migrate code: el código escribe/lee de lo nuevo.
-4. Contract: en una migración posterior, elimina lo viejo.
-
-Caso: cambio de tipo que no castea automáticamente
-- Columna nueva con el tipo destino → backfill con conversión → swap → dr
-
-La regla: expandir y respaldar antes de contraer. Nunca un DROP
-destructivo en el mismo paso que crea el reemplazo.
-
----
-Paso 6 — Migraciones de datos / seed / DDL no soportado
-
-Para backfills, seeds o SQL que Drizzle no genera:
-
-<pm> drizzle-kit generate --custom --name=backfill_<algo>
-
-Genera un .sql vacío. Escribe tu SQL a mano (UPDATE/INSERT/DML). Se aplic
-el mismo migrate y queda versionado junto a las migraciones de schema. Mantén
-las migraciones de datos separadas de las de DDL.
-
----
-Paso 7 — Aplicar
-
-<pm> drizzle-kit migrate
-
-- Aplica las migraciones pendientes y las registra en la tabla de journal
-(__drizzle_migrations por defecto, o la de migrations.table).
-- Nunca uses push contra una DB compartida para aplicar estos cambios.
-- En producción, aplica vía el migrator en runtime/CI, p. ej.:
-import { migrate } from "drizzle-orm/<driver>/migrator";
-await migrate(db, { migrationsFolder: "<out>" });
-
----
-Paso 8 — Commit y verificación
-
-1. Commitea juntos: el schema .ts + el/los .sql + meta/_journal.json
-  - los snapshots. Son un solo cambio atómico.
-2. En CI / equipo corre:
-<pm> drizzle-kit check
-2. Detecta colisiones (dos ramas que generaron la misma migración N).
-3. Verifica: corre la suite de tests / la app contra una DB con la migrac
-aplicada e inspecciona el resultado.
-
----
-NUNCA hagas esto
-
-- ❌ Editar o borrar una migración ya aplicada a una DB compartida. En su
-lugar genera una nueva migración hacia adelante que corrija.
-- ❌ Editar a mano meta/_journal.json o los snapshots *.json. Si hay
-conflicto de merge tras un rebase, regenera, no lo resuelvas a mano.
-- ❌ Commitear un cambio de schema sin su migración (o viceversa).
-- ❌ push contra staging/prod o cualquier DB que no sea tuya y desechable.
-- ❌ Aceptar a ciegas un rename como drop + create.
-- ❌ Aplicar un .sql sin haberlo leído.
-
-Resolución de conflictos de journal (tras merge/rebase)
-
-Si dos ramas crearon migraciones, el _journal.json choca. No edites el JSON:
-reordena tomando tu schema actual como verdad, borra tus migraciones loca
-no aplicadas, sincroniza con la rama base y vuelve a generate. Confirma con
-drizzle-kit check.
+## Referencias
+- `drizzle.config.*` del proyecto, scripts `db:*` en `package.json`.
+- Docs: drizzle-kit `generate` / `migrate` / `push`, y `drizzle-orm/migra
