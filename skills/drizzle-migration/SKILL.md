@@ -1,6 +1,6 @@
 ---
 name: drizzle-migration
-description: Usar al cambiar un esquema gestionado con Drizzle ORM (tablas, columnas, índices, constraints, enums, relaciones) que deba llegar a una base de datos. Prepara y revisa migraciones de forma segura en cualquier proyecto Drizzle (cualquier dialecto, layout o package manager). El agente genera y deja la migración lista; APLICARLA es responsabilidad del usuario. NUNCA usa drizzle-kit push contra bases compartidas: desincroniza el tracking y puede destruir datos.
+description: Usar al cambiar un esquema gestionado con Drizzle ORM (tablas, columnas, índices, constraints, enums, relaciones) que deba llegar a una base de datos. Prepara y revisa migraciones de forma segura en cualquier proyecto Drizzle (cualquier dialecto, layout o package manager). El agente genera y deja la migración lista; APLICARLA es responsabilidad del usuario. NUNCA usa drizzle-kit push contra bases compartidas- desincroniza el tracking y puede destruir datos.
 ---
 
 # Migraciones con Drizzle (flujo seguro)
