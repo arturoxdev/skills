@@ -11,6 +11,7 @@ Ask the questions one at a time, waiting for feedback on each question before co
 If a question can be answered by exploring the codebase, explore the codebase instead.
 
 This skill never invokes external models. If the user wants a second opinion at the end of the session, they can invoke `/ask-altman` (or say "segunda opinión", "consulta a altman", etc.) and the `ask-altman` skill will pick up the session context and consult Codex.
+
 </what-to-do>
 
 <supporting-info>
