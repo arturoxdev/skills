@@ -2,19 +2,20 @@
 name: arch-report
 description: >-
   Scan the current repository and generate a single self-contained, navigable
-  HTML architecture report (database schema + ER diagram, API endpoints, UI
-  pages/components, and auth/roles/jobs/integrations). Use when the user wants a
-  "mapa", "informe de arquitectura", "architecture report", "codebase overview",
-  or a reference document to read before planning a new feature. Stack-agnostic:
-  auto-detects the framework, ORM, and conventions in use.
+  HTML architecture report (database schema + ER diagram, API endpoints with the
+  business-critical ones flagged, and auth/roles/jobs/external connections). Use
+  when the user wants a "mapa", "informe de arquitectura", "architecture report",
+  "codebase overview", or a reference document to read before planning a new
+  feature. Stack-agnostic: auto-detects the framework, ORM, and conventions in use.
 ---
 
 # Architecture Report
 
 Produce **`docs/architecture-report.html`** — one self-contained file the user
 reads *before planning a new feature*. It must answer: where does data live, how
-is it shaped, what endpoints exist, what the UI looks like, and how auth / jobs /
-external services hang together.
+is it shaped, what endpoints exist, **which few endpoints are critical to the
+system's reason for being**, and how auth / jobs / external connections hang
+together.
 
 Optimize for **fast and accurate**. Discover the repo, don't assume — heuristics
 vary by stack. The HTML is built by filling an existing template, so you only
@@ -41,13 +42,21 @@ ask it to return *structured findings* (not file dumps):
   one-line purpose, and the **full request/response contract**: path params,
   query params, request-body fields (each: name · type · required), and a
   representative response shape (field names + types) plus notable status codes.
-  Read the handler code — do not guess field names. Group by resource.
-- **UI** — route/page tree, layouts, and the main reusable components with a
-  one-line role each. Note the rendering model (RSC/SSR/SPA), styling system,
-  and component library.
-- **Auth, roles, jobs, integrations** — auth mechanism & session strategy, the
-  role/permission model, middleware/guards, cron/queue/background jobs, external
-  services (with the SDK/client used), and **env vars** (names + purpose only —
+  Read the handler code — do not guess field names. Group by resource. **Also flag
+  the *critical* endpoints** — the ~20% that deliver ~80% of the system's reason
+  for being: money/payments, ingest of external events that feed the core business
+  model (e.g. core webhooks), auth/session, and anything that mutates central
+  business state. Do **not** flag plain catalog CRUD or list/read endpoints
+  (users, companies, simple listings). For each critical one, capture *why* it's
+  critical: the business value it sustains, what breaks if it fails, and what it
+  touches (DB / money / external services). Aim for a handful (≈3–8), not a list.
+- **Auth, roles, jobs, external connections** — auth mechanism & session strategy,
+  the role/permission model, middleware/guards, and cron/queue/background jobs.
+  Then, for **every external connection** (the database, external APIs, third-party
+  providers): the SDK/client used, **what it's for (its reason to exist)**, the
+  **validations** applied at the boundary (signature/secret checks, schema
+  validation, rate limits, idempotency keys), and the **direction of data**
+  (inbound / outbound / both). Plus **env vars** (names + purpose only —
   **never values/secrets**).
 
 Have agents cite `path:line` for key findings so the report is verifiable.
@@ -117,7 +126,18 @@ Recommended sections, in order:
    the `<div class="body">` holds the contract. Use method badges
    (`m-get m-post m-put m-patch m-delete`) and auth tags
    (`<span class="tag ok">public</span>` / `<span class="tag warn">auth</span>` /
-   `<span class="tag danger">root</span>`). Endpoint shell:
+   `<span class="tag danger">root</span>`).
+
+   **Critical endpoints** (the ≈3–8 that carry the system's reason for being —
+   see step 2): mark each with a **`⭐` pinned to the right of the summary** and
+   add a *"Por qué es crítico"* callout as the **first** thing in the body. Put
+   the `⭐` as the last `<span>` of the summary, right before `.sum-note` — the
+   `margin-left:auto` on the first `.tag` already pushes it to the far right; if
+   the endpoint has no tag, give the star `style="margin-left:auto"` itself. The
+   callout is a `<div class="note">` answering, in 1–3 lines: the business value
+   it sustains, what breaks if it fails, and what it touches (DB / money /
+   external services). **Do not** add the star or callout to ordinary CRUD/list
+   endpoints. Endpoint shell:
 
    ```html
    <details class="endpoint">
@@ -146,14 +166,51 @@ Recommended sections, in order:
    endpoint has none — don't emit empty tables. For read-only `GET`s, skip
    `Request body`. Keep the `<summary>` to one scannable line; put everything
    else in the body.
-4. **`<h2>UI</h2>`** — a `<pre>` route/page tree, then a table of the main
-   components (Component · Location · Role). Optionally a Mermaid `flowchart`/
-   `graph` of the route hierarchy or a key user flow.
-5. **`<h2>Auth, Roles & Middleware</h2>`** — mechanism, session strategy, role
+
+   For a **critical** endpoint, add just two things to that shell — the `⭐` at
+   the right of the summary and the *"Por qué es crítico"* callout opening the
+   body:
+
+   ```html
+   <details class="endpoint">
+     <summary>
+       <span class="badge m-post">POST</span><code>/api/billing/setup-intent</code>
+       <span class="tag warn">auth</span>
+       <span class="star" title="Crítico — razón de ser del sistema">⭐</span>
+       <span class="sum-note">Crea el SetupIntent de Stripe para guardar el método de pago</span>
+     </summary>
+     <div class="body">
+       <div class="note"><b>⭐ Por qué es crítico:</b> sin método de pago no hay cobro, así que habilita toda la facturación — la razón de ser del producto. Si falla, ninguna empresa puede pagar. Toca Stripe (setup intent) y <code>companies.stripeCustomerId</code>.</div>
+       <h4>Request body</h4>
+       ...
+     </div>
+   </details>
+   ```
+4. **`<h2>Auth, Roles & Middleware</h2>`** — mechanism, session strategy, role
    matrix (table: Role · Can do), and where guards live.
-6. **`<h2>Jobs & Integrations</h2>`** — cron/queue/background jobs (table:
-   Job · Trigger · What it does), external services, and an **Environment
-   variables** table (Name · Purpose · Required) — names only, never values.
+5. **`<h2>External Connections</h2>`** — open with a Mermaid `flowchart`/`graph`
+   schematic: the **app in the center**, edges out to the database, external APIs,
+   and third-party providers, with arrowheads showing **data direction**. Then a
+   table, one row per connection: **Provider · Reason to exist · Validations ·
+   Data direction (in/out/both) · Auth / env var** — so a reader grasps *why* each
+   connection exists and *what is checked* at the boundary without reading code.
+   Follow with a **Jobs / crons** subsection (table: Job · Trigger · What it does)
+   and an **Environment variables** table (Name · Purpose · Required) — names only,
+   never values. Schematic shell:
+
+   ```html
+   <pre class="mermaid">
+   flowchart LR
+     APP["call-system app"]
+     DB[("Postgres")]
+     STRIPE["Stripe"]
+     RETELL["Retell"]
+     APP <--> DB
+     APP -->|"live toggle"| RETELL
+     STRIPE -->|"webhooks (signed)"| APP
+     APP -->|"invoices"| STRIPE
+   </pre>
+   ```
 
 Use `<div class="note">` for caveats and `<div class="note warn">` for risks.
 Mark genuinely-empty areas with `<span class="empty">none found</span>` rather
@@ -167,5 +224,6 @@ than omitting the section.
 - Single file only: no external assets except the Mermaid CDN already in the
   template (mention in a note that diagrams need internet to render).
 - After writing, tell the user the path and a one-line summary of what was found
-  (e.g. counts of tables/endpoints/pages).
+  (e.g. counts of tables/endpoints, how many were flagged critical, external
+  connections).
 

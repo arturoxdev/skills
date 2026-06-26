@@ -138,7 +138,7 @@
         <span class="chip"><b>8</b> tables</span>
         <span class="chip"><b>5</b> enums</span>
         <span class="chip"><b>25</b> API routes</span>
-        <span class="chip"><b>12</b> pages</span>
+        <span class="chip"><b>5</b> critical</span>
         <span class="chip"><b>4</b> roles</span>
         <span class="chip"><b>5</b> integrations</span>
       </div>
@@ -404,10 +404,11 @@ erDiagram
 <section data-section>
   <h2>API Endpoints</h2>
   <p class="lead">25 <code>route.ts</code> files under <code>app/api/</code>. <code>proxy.ts</code> guards <em>page</em> routes (redirects); <b>API routes enforce their own auth in-handler</b> via <code>getSessionUser()</code> / <code>requireRole()</code> (<code>lib/auth-helpers.ts</code>). External routes use dedicated secrets, not sessions.</p>
-  <p><b>Click any endpoint to expand its request &amp; response contract.</b> Auth tags: <span class="tag ok">public</span> · <span class="tag">auth</span> any user · <span class="tag warn">role</span> role-gated · <span class="tag danger">secret</span> external secret/api-key.</p>
+  <p><b>Click any endpoint to expand its request &amp; response contract.</b> Auth tags: <span class="tag ok">public</span> · <span class="tag">auth</span> any user · <span class="tag warn">role</span> role-gated · <span class="tag danger">secret</span> external secret/api-key. <b>⭐</b> marks the <b>business-critical</b> endpoints — the ~20% that carry the system's reason for being; open them for a <em>“por qué es crítico”</em> note.</p>
 
   <h3>auth</h3>
-  <details class="endpoint"><summary><span class="badge m-get">GET</span><span class="badge m-post">POST</span><code>/api/auth/[...nextauth]</code><span class="tag ok">public</span><span class="sum-note">NextAuth catch-all (sign-in / session / callback)</span></summary><div class="body">
+  <details class="endpoint"><summary><span class="badge m-get">GET</span><span class="badge m-post">POST</span><code>/api/auth/[...nextauth]</code><span class="tag ok">public</span><span class="star" title="Crítico — razón de ser del sistema">⭐</span><span class="sum-note">NextAuth catch-all (sign-in / session / callback)</span></summary><div class="body">
+    <div class="note"><b>⭐ Por qué es crítico:</b> es la única puerta de entrada al sistema — valida credenciales y emite la sesión JWT (<code>{ id, role, companyId, email }</code>) con la que toda la app autoriza. Si falla, nadie (agencia o staff) puede operar. Toca <code>users</code> (bcrypt) y <code>lib/auth.ts</code>.</div>
     <p>Credentials provider validates email + password via bcrypt against <code>users</code> (rejects if <code>!is_active</code>). Re-exports <code>{ GET, POST }</code> from <code>lib/auth.ts</code>.</p>
     <h4>Path params</h4>
     <table><thead><tr><th>Param</th><th>Type</th><th>Notes</th></tr></thead><tbody><tr><td><code>nextauth</code></td><td>string[]</td><td>NextAuth route segments</td></tr></tbody></table>
@@ -450,7 +451,8 @@ erDiagram
     <p>Status: <code>200</code> · <code>400</code> (missing id / no company / SI missing customer or PM) · <code>403</code> customer mismatch · <code>404</code> · <code>409</code> setup intent not succeeded.</p>
   </div></details>
 
-  <details class="endpoint"><summary><span class="badge m-get">GET</span><code>/api/billing/cron</code><span class="tag danger">CRON_SECRET</span><span class="sum-note">Cron-triggered billing charge run</span></summary><div class="body">
+  <details class="endpoint"><summary><span class="badge m-get">GET</span><code>/api/billing/cron</code><span class="tag danger">CRON_SECRET</span><span class="star" title="Crítico — razón de ser del sistema">⭐</span><span class="sum-note">Cron-triggered billing charge run</span></summary><div class="body">
+    <div class="note"><b>⭐ Por qué es crítico:</b> es donde el sistema <b>cobra</b> — el cron diario factura a las empresas que superan el umbral de llamadas, el único momento en que se genera ingreso. Si falla, no se factura a nadie. Toca el ledger, <code>companies</code> y Stripe (invoices).</div>
     <p>Auth via <code>Authorization: Bearer &lt;CRON_SECRET&gt;</code> or <code>?secret=</code>. Runs with <code>triggeredBy:"cron"</code>.</p>
     <h4>Query params</h4>
     <table><thead><tr><th>Param</th><th>Type</th><th>Req</th><th>Notes</th></tr></thead><tbody><tr><td><code>secret</code></td><td>string</td><td>if no Bearer</td><td>CRON secret fallback</td></tr></tbody></table>
@@ -474,7 +476,8 @@ erDiagram
     <p>Status: <code>200</code> · <code>403</code> non-root.</p>
   </div></details>
 
-  <details class="endpoint"><summary><span class="badge m-post">POST</span><code>/api/billing/setup-intent</code><span class="tag warn">staff_admin+</span><span class="sum-note">Ensure Stripe customer + return SetupIntent secret</span></summary><div class="body">
+  <details class="endpoint"><summary><span class="badge m-post">POST</span><code>/api/billing/setup-intent</code><span class="tag warn">staff_admin+</span><span class="star" title="Crítico — razón de ser del sistema">⭐</span><span class="sum-note">Ensure Stripe customer + return SetupIntent secret</span></summary><div class="body">
+    <div class="note"><b>⭐ Por qué es crítico:</b> sin método de pago no hay cobro, así que este endpoint habilita toda la facturación: crea/asegura el customer de Stripe y emite el SetupIntent con el que la empresa guarda su tarjeta. Si falla, esa empresa nunca podrá pagar. Toca Stripe y <code>companies.stripeCustomerId</code>.</div>
     <p>Reuses an existing SetupIntent in <code>requires_payment_method</code>/<code>requires_confirmation</code> if present.</p>
     <h4>Request body</h4>
     <table><thead><tr><th>Field</th><th>Type</th><th>Req</th><th>Notes</th></tr></thead><tbody><tr><td><code>companyId</code></td><td>string</td><td>no</td><td>agency only — target company</td></tr></tbody></table>
@@ -757,7 +760,8 @@ erDiagram
   </div></details>
 
   <h3>webhooks</h3>
-  <details class="endpoint"><summary><span class="badge m-post">POST</span><code>/api/webhooks/call-ended</code><span class="tag danger">N8N_WEBHOOK_SECRET</span><span class="sum-note">Single ingestion webhook from n8n (ADR-004/006)</span></summary><div class="body">
+  <details class="endpoint"><summary><span class="badge m-post">POST</span><code>/api/webhooks/call-ended</code><span class="tag danger">N8N_WEBHOOK_SECRET</span><span class="star" title="Crítico — razón de ser del sistema">⭐</span><span class="sum-note">Single ingestion webhook from n8n (ADR-004/006)</span></summary><div class="body">
+    <div class="note"><b>⭐ Por qué es crítico:</b> es la única <b>entrada de datos del negocio</b> — cada llamada terminada entra por aquí, se registra (upsert por <code>call_id+agent_id</code>) y genera su entrada de ledger, la base de lo que luego se factura. Si falla, el sistema deja de recibir llamadas y no hay nada que cobrar. Toca <code>calls</code>, el ledger y el balance de la empresa.</div>
     <p>Auth via <code>Authorization: Bearer &lt;secret&gt;</code> (timing-safe). Upserts the call by <code>(call_id, agent_id)</code>, maps customer/transcript fields, resolves billing. Arrays rejected.</p>
     <h4>Request body</h4>
     <p>Top-level Retell-style object.</p>
@@ -772,7 +776,8 @@ erDiagram
     <p>Status: <code>200</code> · <code>204</code> non-call_ended · <code>400</code> · <code>401</code> · <code>500</code> secret not configured.</p>
   </div></details>
 
-  <details class="endpoint"><summary><span class="badge m-post">POST</span><code>/api/webhooks/stripe</code><span class="tag danger">stripe-signature</span><span class="sum-note">Stripe billing webhooks (dedup + retry-safe)</span></summary><div class="body">
+  <details class="endpoint"><summary><span class="badge m-post">POST</span><code>/api/webhooks/stripe</code><span class="tag danger">stripe-signature</span><span class="star" title="Crítico — razón de ser del sistema">⭐</span><span class="sum-note">Stripe billing webhooks (dedup + retry-safe)</span></summary><div class="body">
+    <div class="note"><b>⭐ Por qué es crítico:</b> cierra el ciclo de cobro — confirma si una factura se pagó, falló o quedó incobrable y sincroniza el estado de facturación de la empresa. Sin esto el sistema no sabe quién pagó. Idempotente vía <code>stripe_webhook_events</code>. Toca invoices, <code>companies</code> y el método de pago.</div>
     <p>Signature verified via <code>stripe.webhooks.constructEvent</code>. Idempotent via <code>stripe_webhook_events</code>; on handler error the dedup row is deleted so Stripe retries.</p>
     <h4>Request body</h4>
     <p>Raw Stripe event (text), signature-verified. Handled types:</p>
@@ -785,50 +790,6 @@ invoice.marked_uncollectible · payment_method.detached
   </div></details>
 
   <div class="note">Non-obvious: <code>/api/billing</code> uses inline role branching (plain staff gets a stubbed idle payload, not 403). The <code>/api/calls?invoiceId=</code> view has the strictest gate (staff → 403, staff_admin cross-company → 404). <code>retellCost</code> is stripped in 3 places for non-agency clients (ADR-003).</div>
-</section>
-
-<section data-section>
-  <h2>UI</h2>
-  <p class="lead">RSC-first. Each <code>page.tsx</code> is a Server Component that runs <code>auth()</code> + role gating, then renders a co-located <code>*-client.tsx</code> Client Component for interactivity. Styling: Tailwind v4 + <code>cn()</code>; components: shadcn/ui on <code>@base-ui/react</code> (note Base-UI <code>render={&lt;Link/&gt;}</code>, not Radix <code>asChild</code>).</p>
-
-  <h3>Route / page tree</h3>
-  <pre><code>/                                       redirects → /calls            (server)
-/login                                  credentials sign-in           (CLIENT)
-
-(dashboard)  [route group — no path segment]   layout: auth guard → SidebarProvider + AppSidebar
-  /calls                                calls list + detail sheet      (server → CallsClient)   ← default landing
-  /customers                            customers + call history       (server → CustomersClient)
-  /companies                            company directory + create     (server, root/admin → CompaniesClient)
-  /companies/[id]                       detail: Settings/Billing/Users (server, root/admin → CompanyDetailClient)
-  /users                                agency users management        (server, root/admin → UsersClient)
-  /billing                              role-branched billing          (server, staff blocked → Agency|StaffAdmin client)
-  /billing/invoices/[id]/calls          calls in one invoice           (server, reuses CallsClient)
-  /business-model                       pricing + threshold settings   (server, root only → BusinessModelClient)
-
-/onboarding                             new-company wizard             (layout: root/admin guard → OnboardingClient)
-/audio-call/[id]                        public recording playback      (server, NO AUTH, noindex — ADR-009)</code></pre>
-
-  <h3>Layouts</h3>
-  <table><thead><tr><th>Layout</th><th>File</th><th>Wraps</th></tr></thead><tbody>
-    <tr><td>Root</td><td><code>app/layout.tsx</code></td><td>html/body, Geist fonts, global <code>Toaster</code> (sonner), dev-only Agentation toolbar</td></tr>
-    <tr><td>Dashboard shell</td><td><code>app/(dashboard)/layout.tsx</code></td><td>Auth guard → TooltipProvider → SidebarProvider → AppSidebar + SidebarInset</td></tr>
-    <tr><td>Onboarding shell</td><td><code>app/onboarding/layout.tsx</code></td><td>Auth + root/admin guard; breadcrumb header</td></tr>
-  </tbody></table>
-
-  <h3>Main reusable components</h3>
-  <table><thead><tr><th>Component</th><th>Location</th><th>Role</th></tr></thead><tbody>
-    <tr><td>AppSidebar</td><td><code>components/app-sidebar.tsx</code></td><td>Dashboard nav; role-filtered items, sign-out, embeds SidebarBilling for staff</td></tr>
-    <tr><td>SidebarBilling</td><td><code>components/sidebar-billing.tsx</code></td><td>Balance widget in sidebar footer (staff/staff_admin)</td></tr>
-    <tr><td>CompanyFilter</td><td><code>components/company-filter.tsx</code></td><td>Company-select filter (list views)</td></tr>
-    <tr><td>DateRangePicker</td><td><code>components/date-range-picker.tsx</code></td><td>Date-range calendar popover</td></tr>
-    <tr><td>PageHeader / PageBody</td><td><code>components/layout/</code></td><td>Title+actions header / padded body wrapper</td></tr>
-    <tr><td>StatCard / StatsGrid</td><td><code>components/dashboard/</code></td><td>KPI cards + responsive grid</td></tr>
-    <tr><td>FilterBar / DataTablePagination</td><td><code>components/dashboard/</code></td><td>Search+filter row / pagination controls</td></tr>
-    <tr><td>CardSetupForm</td><td><code>components/billing/card-setup-form.tsx</code></td><td>Stripe add-payment-method form</td></tr>
-    <tr><td>InlineAudioPlayer / CallTranscript</td><td><code>components/calls/</code></td><td>Recording playback (also on public page) / transcript turns</td></tr>
-    <tr><td>Create/Reset user dialogs</td><td><code>components/*-dialog.tsx</code></td><td>Create company user, agency user, reset agency password</td></tr>
-  </tbody></table>
-  <div class="note">The interactive screens themselves live as co-located <code>*-client.tsx</code> beside each page (CallsClient, CompanyDetailClient + <code>tabs/</code>, AgencyBillingClient, OnboardingClient, …). <code>components/ui/</code> holds 24 shadcn/Base-UI primitives — notably the ~21 KB <code>sidebar.tsx</code> powering the dashboard shell.</div>
 </section>
 
 <section data-section>
@@ -863,7 +824,37 @@ invoice.marked_uncollectible · payment_method.detached
 </section>
 
 <section data-section>
-  <h2>Jobs &amp; Integrations</h2>
+  <h2>External Connections</h2>
+  <p class="lead">How the app talks to the outside world: the database plus every third-party provider — <b>why</b> each connection exists, <b>what is validated</b> at the boundary, and the <b>direction</b> data flows. Read this to grasp the system's seams without opening code.</p>
+
+  <pre class="mermaid">
+flowchart LR
+  APP["call-system app"]
+  DB[("Postgres")]
+  STRIPE["Stripe — pagos"]
+  RETELL["Retell — voz"]
+  N8N["n8n — ingesta + lookup"]
+  LEADSNAP["LeadSnap — lead routing"]
+
+  APP <-->|"Drizzle read/write"| DB
+  APP -->|"invoices · setup intents · portal"| STRIPE
+  STRIPE -->|"webhooks (firma verificada)"| APP
+  APP -->|"live number toggle (Bearer)"| RETELL
+  RETELL -->|"call-ended"| N8N
+  N8N -->|"POST /webhooks/call-ended (Bearer)"| APP
+  N8N -->|"GET /external/* (x-api-key)"| APP
+  N8N -->|"lead routing"| LEADSNAP
+  </pre>
+
+  <h3>Connections</h3>
+  <table><thead><tr><th>Provider</th><th>Razón de ser</th><th>Validaciones (en el borde)</th><th>Datos</th><th>Auth / env</th></tr></thead><tbody>
+    <tr><td><b>Postgres</b><br><code>lib/db/schema.ts · pg</code></td><td>Sistema de registro de todo el dominio: companies, users, calls, ledger, invoices.</td><td>Constraints / FK / unique del esquema; transacciones con <code>FOR UPDATE SKIP LOCKED</code> al cobrar (sin doble cargo).</td><td>↔ both</td><td><code>DATABASE_URL</code></td></tr>
+    <tr><td><b>Stripe</b><br><code>lib/stripe.ts · webhooks/stripe</code></td><td>Cobro: facturas por umbral, setup intents, métodos de pago y portal de cliente — donde el negocio recauda.</td><td>Firma de webhook (<code>constructEvent</code> + <code>STRIPE_WEBHOOK_SECRET</code>); idempotency keys; dedup vía <code>stripe_webhook_events</code>.</td><td>↔ both<br><span class="empty">API saliente + webhooks entrantes</span></td><td><code>STRIPE_SECRET_KEY</code>, <code>STRIPE_WEBHOOK_SECRET</code></td></tr>
+    <tr><td><b>Retell</b><br><code>lib/retell-client.ts</code></td><td>Habilita / inhabilita el agente de voz en un número (live toggle).</td><td>Bearer <code>RETELL_API_KEY</code>; la BD persiste <code>enabled</code> <b>solo tras confirmación</b> de Retell; requiere teléfono.</td><td>→ out</td><td><code>RETELL_API_KEY</code></td></tr>
+    <tr><td><b>n8n</b><br><code>webhooks/call-ended · external/*</code></td><td>Puente Retell → app: ingiere las llamadas terminadas y consume el lookup externo de empresas.</td><td>Bearer <code>N8N_WEBHOOK_SECRET</code> (timing-safe) en ingesta; <code>x-api-key</code> <code>EXTERNAL_API_KEY</code> (timing-safe) en lookup; <code>event</code> debe ser <code>call_ended</code>.</td><td>← in</td><td><code>N8N_WEBHOOK_SECRET</code>, <code>EXTERNAL_API_KEY</code></td></tr>
+    <tr><td><b>LeadSnap</b><br><code>companies.leadSnapWebhook</code></td><td>Token de webhook de lead-routing por empresa; la app lo guarda y expone, no lo llama (lo usa n8n).</td><td>Normalizado / validado al guardar (PATCH company); nunca invocado directamente por la app.</td><td><span class="empty">stored</span></td><td>token por empresa</td></tr>
+  </tbody></table>
+  <div class="note"><code>lib/notifications/billing.ts</code> is an internal stub that emits structured JSON logs (placeholder for future email/Slack) — not a live external connection yet.</div>
 
   <h3>Jobs / crons</h3>
   <table><thead><tr><th>Job</th><th>Trigger</th><th>What it does</th></tr></thead><tbody>
@@ -879,15 +870,6 @@ invoice.marked_uncollectible · payment_method.detached
     </ul>
   </div></details>
   <p><b>One-off scripts</b> (<code>scripts/</code>, run via <code>tsx</code>): <code>migrate.ts</code>, <code>lib/db/seed.ts</code>, <code>dev/seed-billing-scenario.ts</code>, <code>dev/seed-calls-for-company.ts</code>, <code>backfill-retell-cost.ts</code>, <code>backfill-retell-numbers.ts</code>.</p>
-
-  <h3>External integrations</h3>
-  <table><thead><tr><th>Service</th><th>Purpose</th><th>Entry point</th></tr></thead><tbody>
-    <tr><td><b>Stripe</b></td><td>Invoices, setup intents, payment methods, customer portal. Threshold-based charging.</td><td>Client <code>lib/stripe.ts</code>; receiver <code>app/api/webhooks/stripe/route.ts</code>; invoice creation in <code>lib/billing/charge-cron.ts</code></td></tr>
-    <tr><td><b>Retell</b></td><td>Enable/disable inbound agent routing on phone numbers (live toggle, PRD #41).</td><td><code>lib/retell-client.ts</code> (raw <code>fetch</code> to api.retellai.com, <b>not</b> the SDK) + <code>lib/retell-numbers.ts</code></td></tr>
-    <tr><td><b>n8n</b></td><td>Sits between Retell and the app (Retell → n8n → app): sends call-ended events, consumes the external lookup API.</td><td>Ingest <code>app/api/webhooks/call-ended/route.ts</code>; auth <code>lib/webhook-auth.ts</code>; mapper <code>lib/calls/map-call-ended-payload.ts</code></td></tr>
-    <tr><td><b>LeadSnap</b></td><td>Per-company lead-routing webhook token; app stores/edits it and exposes it to n8n (does not call it directly).</td><td>Stored on <code>companies.leadSnapWebhook</code>; surfaced via external API</td></tr>
-    <tr><td><b>Notifications</b></td><td>Placeholder layer emitting structured JSON logs — stub for future email/Slack.</td><td><code>lib/notifications/billing.ts</code></td></tr>
-  </tbody></table>
 
   <h3>Environment variables</h3>
   <div class="note warn">Names &amp; purpose only — never commit values. Read from <code>.env.example</code>.</div>
