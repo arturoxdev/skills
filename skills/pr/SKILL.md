@@ -13,6 +13,10 @@ Sin argumento, el PR es el de la rama actual; si la rama no tiene PR, ábrelo co
 la rama de integración (`pruebas` si existe; si no, la rama por defecto del repo) antes de empezar: su número nombra la carpeta de las imágenes. El lector es quien presenta el PR sin haber leído el código: todo el cuerpo
 se entiende sin abrir el diff.
 
+Las evidencias (capturas anotadas, video y GIF) van **solo si el PR afecta el front**:
+que cambie lo que el usuario ve o hace en pantalla. Un PR que no afecta el front no lleva
+ninguna evidencia visual, ni siquiera una captura «de que todo sigue igual».
+
 ## 1. Entender el PR
 
 Lee el diff completo contra la rama base (`gh pr diff`), los commits y el issue que
@@ -29,8 +33,11 @@ qué issues viene.
 
 ## 2. Tomar las capturas anotadas y el video
 
-Solo cuando el PR toca la UI. Un PR sin cambio en pantalla (API, migraciones, refactor,
-dependencias, CI) salta este paso completo: sin capturas y sin video.
+Solo cuando el PR afecta el front (paso 1). Un PR sin cambio en pantalla (API,
+migraciones, refactor, dependencias, CI, scripts, tests) salta este paso completo: sin
+capturas, sin video y sin GIF, y no sube nada a `issue-assets`. Un cambio de backend
+cuenta como front solo si cambia lo que se ve en pantalla (un dato, un mensaje, un
+flujo); ahí la evidencia muestra esa pantalla.
 
 Levanta la app en la rama del PR y recorre cada cambio visible con `agent-browser` (lee
 su skill antes). Por cada pantalla:
